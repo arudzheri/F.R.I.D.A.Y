@@ -1,90 +1,52 @@
+import threading
 import time
-import pathlib
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+import eel
+import os
 
-def configure_driver():
-    """Configure and return a Chrome WebDriver instance."""
-    ScriptDir = pathlib.Path().absolute()
-    chrome_options = Options()
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.2; WOW64; Trident/6.0)")
-    chrome_options.add_argument("--profile-directory=Default")
-    chrome_options.add_argument(f'user-data-dir={ScriptDir}\\chromedata')
-    chrome_options.add_argument("--headless")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    return driver
+from logic_brain import friday_brain
 
+eel.init("web")
 
+# --- Update Chat and Typing Animation ---
+def update_ui_loop():
+    last_input, last_response = "", ""
+    while True:
+        try:
+            input_data = open("input.txt").read().strip() if os.path.exists("input.txt") else ""
+            response_data = open("output.txt").read().strip() if os.path.exists("output.txt") else ""
 
-def login(driver):
-    """Login to the website."""
-    try:
-        driver.get("https://pi.ai/")
-        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//*[@id='__next']/main/div/div/div[3]/div[1]/div[4]/div/div/textarea")))
-        print("Already logged in.")
-        voice_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//*[@id='__next']/main/div/div/div[3]/div[2]/div[2]/div/div[2]")))
-        voice_button.click()
-    except:
+            # Only update if there's new content
+            if input_data != last_input or response_data != last_response:
+                eel.add_chat_message(input_data, response_data)
+                animated_text = f"Input: {input_data}\nResponse: {response_data}"
+                eel.animate_text("output-box", animated_text)
+                last_input, last_response = input_data, response_data
 
-        next_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, '//*[@id="__next"]/main/div/div/div[2]/div[2]/div/button')))
-        next_button.click()
-
-        next_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, '//*[@id="__next"]/main/div/div/div[2]/div[2]/div/button')))
-        next_button.click()
-        next_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, '//*[@id="__next"]/main/div/div/div[2]/div[2]/div/button')))
-        next_button.click()
-
-
-
-
-driver = configure_driver()
-login(driver)
-def chat(message):
-    """Send a message and retrieve the response."""
-
-    try:
-        chat_input = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//*[@id='__next']/main/div/div/div[3]/div[1]/div[4]/div/div/textarea")))
-        chat_input.send_keys(message)
-
-        send_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, "//*[@id='__next']/main/div/div/div[3]/div[1]/div[4]/div/button")))
-        send_button.click()
-
-        time.sleep(2)
-
-        result_area = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//*[@id='__next']/main/div/div/div[3]/div[1]/div[2]/div/div/div/div[3]/div/div/div[2]/div[1]/div/div")))
-        result_text = result_area.text
-
-        print("Result:", result_text)
-
-        with open("web/response.txt", "a", encoding="utf-8") as file:
-            file.write(result_text.lower())  # Append response to the file
-
-    except :
-        next_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, '//*[@id="__next"]/main/div/div/div/div/div/div[2]/button')))
-        next_button.click()
-        next_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, '//*[@id="__next"]/main/div/div/div/div/div/div/div[2]/button')))
-        next_button.click()
-        chat_input = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//*[@id='__next']/main/div/div/div[3]/div[1]/div[4]/div/div/textarea")))
-        chat_input.send_keys(message)
-
-        send_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, "//*[@id='__next']/main/div/div/div[3]/div[1]/div[4]/div/button")))
-        send_button.click()
+        except Exception as e:
+            print("[UI Update Error]:", e)
 
         time.sleep(1)
 
-        result_area = WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//*[@id='__next']/main/div/div/div[3]/div[1]/div[2]/div/div/div/div[3]/div/div/div[2]/div[1]/div/div")))
-        result_text = result_area.text
+@eel.expose
+def start_display_loop():
+    threading.Thread(target=update_ui_loop, daemon=True).start()
 
-        print("Result:", result_text)
+@eel.expose
+def process_voice_input(text):
+    # Handle the voice input — e.g., write to input.txt
+    with open("input.txt", "w") as f:
+        f.write(text)
+    print("[Voice Command Received]:", text)
 
-        with open("web/response.txt", "a", encoding="utf-8") as file:
-            file.write(result_text.lower())  # Append response to the file
+def ui():
+    try:
+        eel.start("index.html", mode='chrome', port=8080, cmdline_args=['--start-fullscreen'])
+    except EnvironmentError:
+        eel.start("index.html", mode='default', port=8080)
+
+def friday():
+    threading.Thread(target=friday_brain, daemon=True).start()
+    ui()
+
+if __name__ == "__main__":
+    friday()
